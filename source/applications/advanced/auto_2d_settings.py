@@ -96,6 +96,14 @@ def _options() -> argparse.Namespace:
         action="store_false",
         help="Enable to turn off color balancing",
     )
+    parser.add_argument(
+        "--pixel-sampling",
+        dest="pixel_sampling",
+        type=str,
+        default="none",
+        help="Pixel sampling for 2D settings, options supported by script: none, by2x2, by4x4",
+        choices=["none", "by2x2", "by4x4"],
+    )
 
     return parser.parse_args()
 
@@ -135,7 +143,7 @@ def _capture_assistant_settings(camera: zivid.Camera) -> zivid.Settings:
     return suggested_settings
 
 
-def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple[np.ndarray, float]:
+def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple[np.ndarray, np.ndarray, float]:
     """Generate a 2D mask of the white checkers on a checkerboard and calculate the distance to it.
 
     Args:
@@ -157,11 +165,16 @@ def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple
         distance_to_checkerboard = checkerboard_pose[2, 3]
 
         rgb = frame.point_cloud().copy_data("rgba")[:, :, :3]
+        rgb_height, rgb_width, _ = rgb.shape
         white_squares_mask = find_white_mask_from_checkerboard(rgb)
+
+        # resize mask to match the RGB image size
+        white_squares_mask = cv2.resize(white_squares_mask, (rgb_width, rgb_height), interpolation=cv2.INTER_NEAREST)
+
     except RuntimeError as exc:
         raise RuntimeError("Unable to find checkerboard, make sure it is in view of the camera.") from exc
 
-    return white_squares_mask, distance_to_checkerboard
+    return rgb, white_squares_mask, distance_to_checkerboard
 
 
 def _find_lowest_acceptable_fnum(camera: zivid.Camera, image_distance_near: float, image_distance_far: float) -> float:
@@ -315,7 +328,7 @@ def _find_max_brightness(camera: zivid.Camera) -> float:
     return brightness
 
 
-def _initialize_settings_2d(aperture: float, exposure_time: float, brightness: float, gain: float) -> zivid.Settings2D:
+def _initialize_settings_2d(aperture: float, exposure_time: float, brightness: float, gain: float, pixel_sampling: str) -> zivid.Settings2D:
     """Initialize 2D capture settings.
 
     Args:
@@ -323,12 +336,14 @@ def _initialize_settings_2d(aperture: float, exposure_time: float, brightness: f
         exposure_time: Exposure time
         brightness: Projector brightness
         gain: Analog gain
+        pixel_sampling: Pixel sampling
 
     Returns:
         Zivid 2D capture settings
 
     """
-    return zivid.Settings2D(
+
+    settings_2d = zivid.Settings2D(
         acquisitions=[
             zivid.Settings2D.Acquisition(
                 aperture=aperture,
@@ -341,6 +356,15 @@ def _initialize_settings_2d(aperture: float, exposure_time: float, brightness: f
             zivid.Settings2D.Processing.Color(gamma=1, balance=zivid.Settings2D.Processing.Color.Balance(1, 1, 1))
         ),
     )
+
+    if pixel_sampling == "by2x2":
+        settings_2d.sampling.pixel = zivid.Settings.Sampling.Pixel.by2x2
+    elif pixel_sampling == "by4x4":
+        settings_2d.sampling.pixel = zivid.Settings.Sampling.Pixel.by4x4
+    else:
+        print(f"Pixel sampling set to {pixel_sampling}, no resampling will be done.")
+
+    return settings_2d
 
 
 def _found_acquisition_settings_2d(max_mean_color: float, lower_limit: float, upper_limit: float) -> bool:
@@ -389,6 +413,7 @@ def _adjust_acquisition_settings_2d(
     if tuning_index == 1:
         new_aperture = np.clip(settings_2d.acquisitions[0].aperture / adjustment_factor, min_fnum, 32)
         settings_2d.acquisitions[0].aperture = new_aperture
+        print(f'[TUNING INDEX 1] Adjusted aperture: {new_aperture:.2f}')
         if new_aperture in (min_fnum, 32):
             tuning_index = 2
 
@@ -396,6 +421,7 @@ def _adjust_acquisition_settings_2d(
         max_gain = 2
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
+        print(f'[TUNING INDEX 2] Adjusted gain: {new_gain:.2f}')
         if new_gain in (1, max_gain):
             tuning_index = 3
 
@@ -409,6 +435,7 @@ def _adjust_acquisition_settings_2d(
             )
         )
         settings_2d.acquisitions[0].exposure_time = new_exposure_time
+        print(f'[TUNING INDEX 3] Adjusted exposrue: {new_exposure_time.microseconds} [us]')
         if new_exposure_time in (
             timedelta(microseconds=min_exposure_time),
             timedelta(microseconds=max_exposure_time),
@@ -419,6 +446,7 @@ def _adjust_acquisition_settings_2d(
         max_gain = 4
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
+        print(f'[TUNING INDEX 4] Adjusted gain to {new_gain:.2f}') 
         if new_gain in (1, max_gain):
             tuning_index = 5
 
@@ -432,6 +460,7 @@ def _adjust_acquisition_settings_2d(
             )
         )
         settings_2d.acquisitions[0].exposure_time = new_exposure_time
+        print(f'[TUNING INDEX 5] Adjusted exposure: {new_exposure_time.microseconds} [us]')
         if new_exposure_time in (
             timedelta(microseconds=min_exposure_time),
             timedelta(microseconds=max_exposure_time),
@@ -442,6 +471,7 @@ def _adjust_acquisition_settings_2d(
         max_gain = 16
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
+        print(f'[TUNING INDEX 6] Adjusted gain to {new_gain:.2f}')
         if new_gain in (1, max_gain):
             tuning_index = 1
 
@@ -454,6 +484,7 @@ def _find_2d_settings_from_mask(
     min_fnum: float,
     use_projector: bool = False,
     find_color_balance: bool = False,
+    pixel_sampling: str = 'none',
 ) -> zivid.Settings2D:
     """Find 2D settings automatically from the masked white reference area in a RGB image.
 
@@ -463,6 +494,7 @@ def _find_2d_settings_from_mask(
         min_fnum: Lower limit on f-number for the calibrated settings
         use_projector: Use projector as part of acquisition settings
         find_color_balance: Set True to balance color, False otherwise
+        pixel_sampling: Pixel sampling for 2D settings
 
     Raises:
         RuntimeError: If unable to find settings after sufficient number of tries
@@ -472,8 +504,13 @@ def _find_2d_settings_from_mask(
 
     """
     min_exposure_time = _find_lowest_exposure_time(camera)
-    brightness = _find_max_brightness(camera) if use_projector else 0
-    settings_2d = _initialize_settings_2d(aperture=8, exposure_time=min_exposure_time, brightness=brightness, gain=1)
+    print(f'Lowest exposure time: {min_exposure_time} [us]')
+
+    projector_brightness = _find_max_brightness(camera) if use_projector else 0
+    print(f'Max projector brightness: {projector_brightness}')
+
+    settings_2d = _initialize_settings_2d(aperture=8, exposure_time=min_exposure_time, brightness=projector_brightness, gain=1, pixel_sampling=pixel_sampling)
+    print(f'Initial settings 2D: {settings_2d}')
 
     lower_white_range = 210
     upper_white_range = 215
@@ -585,7 +622,8 @@ def _main() -> None:
     camera = app.connect_camera()
 
     print("Finding the white squares of the checkerboard as white reference ...")
-    white_mask, checkerboard_distance = _find_white_mask_and_distance_to_checkerboard(camera)
+    rgb_checkerboard, white_mask, checkerboard_distance = _find_white_mask_and_distance_to_checkerboard(camera)
+    # TODO log images to timestamp ...
 
     # Determining lowest acceptable f-number to be in focus
     if user_options.checkerboard_at_start_of_range:
@@ -599,19 +637,23 @@ def _main() -> None:
 
     print("Finding 2D settings via white mask ...")
     settings_2d = _find_2d_settings_from_mask(
-        camera, white_mask, min_fnum, user_options.use_projector, user_options.find_color_balance
+        camera, white_mask, min_fnum, user_options.use_projector, user_options.find_color_balance, pixel_sampling=user_options.pixel_sampling
     )
 
     print("Automatic 2D settings:")
     print(settings_2d)
 
+    # TODO save to timestamp / tag
     filepath = Path(".") / "Automatic2DSettings.yml"
     print(f"Saving settings to: {filepath.resolve()}\n")
     settings_2d.save(filepath)
 
     rgb = _capture_rgb(camera, settings_2d)
+    # TODO save post_calibration_preview 
 
     _print_poor_pixel_distribution(rgb)
+
+    # TODO save plot to disk
     _plot_image_with_histogram(rgb, settings_2d)
 
 
