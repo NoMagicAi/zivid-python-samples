@@ -115,8 +115,10 @@ def _options() -> argparse.Namespace:
 
     return parser.parse_args()
 
+
 def _get_current_time_ms() -> int:
     return int(time.time() * 1000)
+
 
 def _capture_rgb(camera: zivid.Camera, settings_2d: zivid.Settings2D) -> np.ndarray:
     """Capture a 2D image and extract RGB values.
@@ -170,6 +172,9 @@ def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple
     """
     try:
         settings = _capture_assistant_settings(camera)
+        # NOTE: for some reason zivid SDK complains about multiple suggested 2D settings, so we only keep the first one
+        settings.color.acquisitions = [settings.color.acquisitions[0]]
+        print(f'Trying to catch checkerboard with camera settings:\n{settings}')
         frame = camera.capture(settings)
 
         checkerboard_pose = zivid.calibration.detect_calibration_board(frame).pose().to_matrix()
@@ -177,6 +182,7 @@ def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple
 
         rgb = frame.point_cloud().copy_data("rgba")[:, :, :3]
         white_squares_mask = find_white_mask_from_checkerboard(rgb)
+
     except RuntimeError as exc:
         raise RuntimeError("Unable to find checkerboard, make sure it is in view of the camera.") from exc
 
@@ -645,6 +651,7 @@ def _main() -> None:
 
     print("Connecting to camera")
     camera = app.connect_camera()
+    print(f"Connected to camera: {str(camera)}")
 
     # Find checkerboard in full resolution, then resize if required
     print("Finding the white squares of the checkerboard as white reference ...")
@@ -652,7 +659,7 @@ def _main() -> None:
     print(f"Initial RGB image shape (checkerboard): {rgb_full_res.shape}")
     print(f"Initial white squres mask shape (checkerboard): {white_mask_full_res.shape}")
     _log_image(rgb_full_res, log_dir / "checkerboard_rgb.png")
-    _log_image(white_mask_full_res, log_dir / "checkerboard_white_mask.png")
+    _log_image(white_mask_full_res.astype(np.uint8) * 255, log_dir / "checkerboard_white_mask.png")
 
     # Resize mask to match pixel sampling mode
     if user_options.pixel_sampling == "by2x2":
@@ -661,8 +668,9 @@ def _main() -> None:
         resize_factor = 0.25
     else:
         resize_factor = 1
+
     white_mask = cv2.resize(white_mask_full_res, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_NEAREST)
-    _log_image(white_mask, log_dir / "checkerboard_white_mask_resized.png")
+    _log_image(white_mask.astype(np.uint8) * 255, log_dir / "checkerboard_white_mask_resized.png")
 
     # Determine lowest acceptable f-number to be in focus
     if user_options.checkerboard_at_start_of_range:
@@ -688,7 +696,7 @@ def _main() -> None:
 
     # Capture RGB image with the found settings for visualization
     rgb = _capture_rgb(camera, settings_2d)
-    log_dir(rgb, log_dir / "post_calibration_rgb.png")
+    _log_image(rgb, log_dir / "post_calibration_rgb.png")
 
     _print_poor_pixel_distribution(rgb)
     _plot_image_with_histogram(rgb, settings_2d, out_path=log_dir / "post_calibration_histogram.png")
