@@ -419,7 +419,7 @@ def _adjust_acquisition_settings_2d(
     if tuning_index == 1:
         new_aperture = np.clip(settings_2d.acquisitions[0].aperture / adjustment_factor, min_fnum, 32)
         settings_2d.acquisitions[0].aperture = new_aperture
-        print(f"[TUNING INDEX 1] Adjusted aperture: {new_aperture:.2f}")
+        print(f"Adjusted aperture: {new_aperture:.2f}")
         if new_aperture in (min_fnum, 32):
             tuning_index = 2
 
@@ -427,7 +427,7 @@ def _adjust_acquisition_settings_2d(
         max_gain = 2
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
-        print(f"[TUNING INDEX 2] Adjusted gain: {new_gain:.2f}")
+        print(f"Adjusted gain: {new_gain:.2f}")
         if new_gain in (1, max_gain):
             tuning_index = 3
 
@@ -441,7 +441,7 @@ def _adjust_acquisition_settings_2d(
             )
         )
         settings_2d.acquisitions[0].exposure_time = new_exposure_time
-        print(f"[TUNING INDEX 3] Adjusted exposrue: {new_exposure_time.microseconds} [us]")
+        print(f"Adjusted exposure: {new_exposure_time.microseconds} [us]")
         if new_exposure_time in (
             timedelta(microseconds=min_exposure_time),
             timedelta(microseconds=max_exposure_time),
@@ -452,7 +452,7 @@ def _adjust_acquisition_settings_2d(
         max_gain = 4
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
-        print(f"[TUNING INDEX 4] Adjusted gain to {new_gain:.2f}")
+        print(f"Adjusted gain to {new_gain:.2f}")
         if new_gain in (1, max_gain):
             tuning_index = 5
 
@@ -466,7 +466,7 @@ def _adjust_acquisition_settings_2d(
             )
         )
         settings_2d.acquisitions[0].exposure_time = new_exposure_time
-        print(f"[TUNING INDEX 5] Adjusted exposure: {new_exposure_time.microseconds} [us]")
+        print(f"Adjusted exposure: {new_exposure_time.microseconds} [us]")
         if new_exposure_time in (
             timedelta(microseconds=min_exposure_time),
             timedelta(microseconds=max_exposure_time),
@@ -477,7 +477,7 @@ def _adjust_acquisition_settings_2d(
         max_gain = 16
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
-        print(f"[TUNING INDEX 6] Adjusted gain to {new_gain:.2f}")
+        print(f"Adjusted gain to {new_gain:.2f}")
         if new_gain in (1, max_gain):
             tuning_index = 1
 
@@ -500,7 +500,7 @@ def _find_2d_settings_from_mask(
         min_fnum: Lower limit on f-number for the calibrated settings
         use_projector: Use projector as part of acquisition settings
         find_color_balance: Set True to balance color, False otherwise
-        pixel_sampling: Pixel sampling for 2D settings
+        pixel_sampling: Pixel sampling
 
     Raises:
         RuntimeError: If unable to find settings after sufficient number of tries
@@ -524,7 +524,7 @@ def _find_2d_settings_from_mask(
     tuning_index = 1
     count = 0
     while True:
-        print(f"Iteration {count + 1}...")
+        print(f"Iteration {count + 1}, tuning index: {tuning_index}")
         rgb = _capture_rgb(camera, settings_2d)
         mean_rgb = compute_mean_rgb_from_mask(rgb, white_mask)
         max_mean_color = mean_rgb.max()
@@ -654,7 +654,7 @@ def _main() -> None:
     _log_image(rgb_full_res, log_dir / "checkerboard_rgb.png")
     _log_image(white_mask_full_res, log_dir / "checkerboard_white_mask.png")
 
-    # Resize mask to match sampling mode
+    # Resize mask to match pixel sampling mode
     if user_options.pixel_sampling == "by2x2":
         resize_factor = 0.5
     elif user_options.pixel_sampling == "by4x4":
