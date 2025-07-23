@@ -496,6 +496,7 @@ def _find_2d_settings_from_mask(
     use_projector: bool = False,
     find_color_balance: bool = False,
     pixel_sampling: str = "none",
+    max_gain_override: Optional[float] = None,
 ) -> zivid.Settings2D:
     """Find 2D settings automatically from the masked white reference area in a RGB image.
 
@@ -540,7 +541,10 @@ def _find_2d_settings_from_mask(
 
         acquisition_factor = float(np.mean(list(white_range)) / max_mean_color)
         tuning_index = _adjust_acquisition_settings_2d(
-            settings_2d, acquisition_factor, tuning_index, min_fnum, min_exposure_time
+            settings_2d, acquisition_factor, tuning_index,
+            min_fnum=min_fnum,
+            min_exposure_time=min_exposure_time,
+            max_gain_override=max_gain_override,
         )
 
         count = count + 1
@@ -658,13 +662,7 @@ def _main() -> None:
     _log_image(white_mask_full_res.astype(np.uint8) * 255, log_dir / "checkerboard_white_mask.png")
 
     # Resize mask to match pixel sampling mode
-    if user_options.pixel_sampling == "by2x2":
-        resize_factor = 0.5
-    elif user_options.pixel_sampling == "by4x4":
-        resize_factor = 0.25
-    else:
-        resize_factor = 1
-
+    resize_factor = {"none": 1, "by2x2": 0.5, "by4x4": 0.25}.get(user_options.pixel_sampling, 1)
     white_mask = cv2.resize(white_mask_full_res, None, fx=resize_factor, fy=resize_factor, interpolation=cv2.INTER_NEAREST)
     _log_image(white_mask.astype(np.uint8) * 255, log_dir / "checkerboard_white_mask_resized.png")
 
@@ -677,7 +675,7 @@ def _main() -> None:
         image_distance_near = image_distance_far - user_options.desired_focus_range
     print(f"Computed distance range: [{image_distance_near:.2f}, {image_distance_far:.2f}] [mm]")
 
-    min_fnum = _find_lowest_acceptable_fnum(camera, image_distance_near, image_distance_far, max_gain_override=user_options.max_gain_override)
+    min_fnum = _find_lowest_acceptable_fnum(camera, image_distance_near, image_distance_far)
     print(f"Lowest acceptable f-number: {min_fnum:.2f}")
 
     print("Finding 2D settings via white mask ...")
@@ -688,7 +686,8 @@ def _main() -> None:
         white_range=user_options.desired_white_range,
         use_projector=user_options.use_projector,
         find_color_balance=user_options.find_color_balance,
-        pixel_sampling=user_options.pixel_sampling
+        pixel_sampling=user_options.pixel_sampling,
+        max_gain_override=user_options.max_gain_override,
     )
 
     print(f"Automatic 2D settings: {str(settings_2d)}")
