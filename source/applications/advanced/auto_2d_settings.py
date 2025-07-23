@@ -68,6 +68,14 @@ def _options() -> argparse.Namespace:
         dest="desired_focus_range",
         help="Distance from checkerboard that should be in focus",
     )
+    parser.add_argument(
+        "--desired-white-range",
+        type=float,
+        nargs=2,
+        required=True,
+        dest="desired_white_range",
+        help="Desired white range (min, max)",
+    )
 
     checkerboard_group = parser.add_mutually_exclusive_group(required=True)
     checkerboard_group.add_argument(
@@ -112,6 +120,13 @@ def _options() -> argparse.Namespace:
         type=str,
         default="",
         help="Calibration ID used for logging",
+    )
+    parser.add_argument(
+        "--log-dir",
+        dest="log_dir",
+        type=Path,
+        default=Path("/tmp/auto_2d_settings"),
+        help="Directory to save log files and images",
     )
 
     return parser.parse_args()
@@ -469,6 +484,7 @@ def _find_2d_settings_from_mask(
     camera: zivid.Camera,
     white_mask: np.ndarray,
     min_fnum: float,
+    white_range: Tuple[float, float] = (210, 215),
     use_projector: bool = False,
     find_color_balance: bool = False,
     pixel_sampling: str = "none",
@@ -491,14 +507,6 @@ def _find_2d_settings_from_mask(
 
     """
     min_exposure_time = _find_lowest_exposure_time(camera)
-    # settings_2d = _initialize_settings_2d(aperture=8, exposure_time=min_exposure_time, brightness=brightness, gain=1)
-    # TODO verify if needed?
-    # if not use_projector and camera.info.model in (
-    #     zivid.CameraInfo.Model.zivid2PlusMR130,
-    #     zivid.CameraInfo.Model.zivid2PlusMR60,
-    #     zivid.CameraInfo.Model.zivid2PlusLR110,
-    # ):
-    #     settings_2d.sampling.color = zivid.Settings2D.Sampling.Color.grayscale
     print(f"Lowest exposure time: {min_exposure_time} [us]")
 
     projector_brightness = _find_max_brightness(camera) if use_projector else 0
@@ -506,9 +514,6 @@ def _find_2d_settings_from_mask(
 
     settings_2d = _initialize_settings_2d(aperture=8, exposure_time=min_exposure_time, brightness=projector_brightness, gain=1, pixel_sampling=pixel_sampling)
     print(f"Initial settings 2D: {settings_2d}")
-
-    lower_white_range = 210
-    upper_white_range = 215
 
     tuning_index = 1
     count = 0
@@ -519,13 +524,13 @@ def _find_2d_settings_from_mask(
         max_mean_color = mean_rgb.max()
 
         found_acquisition_settings = _found_acquisition_settings_2d(
-            max_mean_color, lower_white_range, upper_white_range
+            max_mean_color, white_range[0], white_range[1]
         )
 
         if found_acquisition_settings:
             break
 
-        acquisition_factor = float(np.mean([lower_white_range, upper_white_range]) / max_mean_color)
+        acquisition_factor = float(np.mean(list(white_range)) / max_mean_color)
         tuning_index = _adjust_acquisition_settings_2d(
             settings_2d, acquisition_factor, tuning_index, min_fnum, min_exposure_time
         )
@@ -628,7 +633,7 @@ def _main() -> None:
         user_options.calibration_id = str(_get_current_time_ms())
 
     # Setup log dir
-    log_dir = Path("/tmp/auto_2d_settings") / user_options.calibration_id
+    log_dir = user_options.log_dir / user_options.calibration_id
     log_dir.mkdir(parents=True, exist_ok=True)
     print(f"Log directory: {log_dir}")
 
@@ -669,7 +674,13 @@ def _main() -> None:
 
     print("Finding 2D settings via white mask ...")
     settings_2d = _find_2d_settings_from_mask(
-        camera, white_mask, min_fnum, user_options.use_projector, user_options.find_color_balance, pixel_sampling=user_options.pixel_sampling
+        camera,
+        white_mask,
+        min_fnum,
+        white_range=user_options.desired_white_range,
+        use_projector=user_options.use_projector,
+        find_color_balance=user_options.find_color_balance,
+        pixel_sampling=user_options.pixel_sampling
     )
 
     print(f"Automatic 2D settings: {str(settings_2d)}")
