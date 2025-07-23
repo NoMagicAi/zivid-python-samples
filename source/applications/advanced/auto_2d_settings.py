@@ -177,7 +177,7 @@ def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple
         frame = zivid.calibration.capture_calibration_board(camera)
         checkerboard_pose = zivid.calibration.detect_calibration_board(frame).pose().to_matrix()
         distance_to_checkerboard = checkerboard_pose[2, 3]
-        rgb = frame.point_cloud().copy_data("rgba_srgb")[:, :, :3] # ? rgba_sgrb
+        rgb = frame.point_cloud().copy_data("rgba_srgb")[:, :, :3]
         white_squares_mask = find_white_mask_from_checkerboard(rgb)
 
     except RuntimeError as exc:
@@ -657,7 +657,7 @@ def _main() -> None:
     print("Finding the white squares of the checkerboard as white reference ...")
     rgb_full_res, white_mask_full_res, checkerboard_distance = _find_white_mask_and_distance_to_checkerboard(camera)
     print(f"Initial RGB image shape (checkerboard): {rgb_full_res.shape}")
-    print(f"Initial white squres mask shape (checkerboard): {white_mask_full_res.shape}")
+    print(f"Initial white squares mask shape (checkerboard): {white_mask_full_res.shape}")
     _log_image(rgb_full_res, log_dir / "checkerboard_rgb.png")
     _log_image(white_mask_full_res.astype(np.uint8) * 255, log_dir / "checkerboard_white_mask.png")
 
