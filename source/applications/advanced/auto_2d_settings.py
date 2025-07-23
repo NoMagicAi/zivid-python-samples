@@ -22,7 +22,7 @@ import argparse
 import time
 from datetime import timedelta
 from pathlib import Path
-from typing import Tuple
+from typing import Tuple, Optional
 
 import cv2
 import matplotlib.pyplot as plt
@@ -115,6 +115,13 @@ def _options() -> argparse.Namespace:
         choices=["none", "by2x2", "by4x4"],
     )
     parser.add_argument(
+        "--max-gain-override",
+        dest="max_gain_override",
+        type=float,
+        default=None,
+        help="Override the maximum gain used in the tuning process",
+    )
+    parser.add_argument(
         "--calibration-id",
         dest="calibration_id",
         type=str,
@@ -170,6 +177,7 @@ def _find_white_mask_and_distance_to_checkerboard(camera: zivid.Camera) -> Tuple
         frame = zivid.calibration.capture_calibration_board(camera)
         checkerboard_pose = zivid.calibration.detect_calibration_board(frame).pose().to_matrix()
         distance_to_checkerboard = checkerboard_pose[2, 3]
+        # TODO check why rgba_sgrb?
         rgb = frame.point_cloud().copy_data("rgba_sgrb")[:, :, :3]
         white_squares_mask = find_white_mask_from_checkerboard(rgb)
 
@@ -390,6 +398,7 @@ def _adjust_acquisition_settings_2d(
     tuning_index: int,
     min_fnum: float,
     min_exposure_time: float,
+    max_gain_override: Optional[float] = None,
 ) -> int:
     """Adjust acquisition settings by an adjustment factor to update acquisition settings. Which setting to adjust is
     determined by the tuning index. The algorithm transitions through the following steps if the limit in each step is
@@ -420,7 +429,7 @@ def _adjust_acquisition_settings_2d(
             tuning_index = 2
 
     elif tuning_index == 2:
-        max_gain = 2
+        max_gain = max_gain_override or 2
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
         print(f"Adjusted gain: {new_gain:.2f}")
@@ -445,7 +454,7 @@ def _adjust_acquisition_settings_2d(
             tuning_index = 4
 
     elif tuning_index == 4:
-        max_gain = 4
+        max_gain = max_gain_override or 4
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
         print(f"Adjusted gain to {new_gain:.2f}")
@@ -470,7 +479,7 @@ def _adjust_acquisition_settings_2d(
             tuning_index = 6
 
     elif tuning_index == 6:
-        max_gain = 16
+        max_gain = max_gain_override or 16
         new_gain = np.clip(settings_2d.acquisitions[0].gain * adjustment_factor, 1, max_gain)
         settings_2d.acquisitions[0].gain = new_gain
         print(f"Adjusted gain to {new_gain:.2f}")
@@ -669,7 +678,7 @@ def _main() -> None:
         image_distance_near = image_distance_far - user_options.desired_focus_range
     print(f"Computed distance range: [{image_distance_near:.2f}, {image_distance_far:.2f}] [mm]")
 
-    min_fnum = _find_lowest_acceptable_fnum(camera, image_distance_near, image_distance_far)
+    min_fnum = _find_lowest_acceptable_fnum(camera, image_distance_near, image_distance_far, max_gain_override=user_options.max_gain_override)
     print(f"Lowest acceptable f-number: {min_fnum:.2f}")
 
     print("Finding 2D settings via white mask ...")
